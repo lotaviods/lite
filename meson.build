@@ -13,3 +13,10 @@ executable('lite', sources,
   include_directories : include_directories('src'),
   dependencies : deps,
   install : false)
+
+# Copy runtime data next to the binary on every build.
+custom_target('copy-data',
+  output : 'data.stamp',
+  command : ['sh', '-c', 'rm -rf "$0/data" && cp -r "$1/data" "$0/data" && touch "$2"', meson.project_build_root(), meson.project_source_root(), '@OUTPUT@'],
+  build_always_stale : true,
+  build_by_default : true)
