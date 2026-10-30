@@ -25,6 +25,7 @@ function TreeView:new()
   self.visible = true
   self.init_size = true
   self.cache = {}
+  self.expand_version = 0
 end
 
 
@@ -60,23 +61,24 @@ function TreeView:get_scrollable_size()
 end
 
 
--- widest row in pixels; cached, recomputed only when the file list changes
+-- widest row in pixels; cached, recomputed only when the file list changes.
+-- mirrors the x-advance in draw() exactly so scroll reaches the longest name.
 function TreeView:get_content_width()
-  if self.content_width and self.content_width_files == core.project_files then
+  if self.content_width and self.content_width_key == self.expand_version then
     return self.content_width
   end
   local icon_width = style.icon_font:get_width("D")
   local spacing = style.font:get_width(" ") * 2
   local max = 0
   for item in self:each_item() do
-    local w = item.depth * style.padding.x + style.padding.x -- indent
-      + style.padding.x + icon_width -- icon(s): dir uses two but widths match closely enough
+    -- indent + icon area (same for dir and file) + spacing + name
+    local w = item.depth * style.padding.x + style.padding.x
+      + style.padding.x + icon_width
       + spacing + style.font:get_width(item.name)
-    if item.type == "dir" then w = w + style.padding.x end
     if w > max then max = w end
   end
   self.content_width = max + style.padding.x
-  self.content_width_files = core.project_files
+  self.content_width_key = self.expand_version
   return self.content_width
 end
 
@@ -88,6 +90,7 @@ function TreeView:check_cache()
       v.skip = nil
     end
     self.last_project_files = core.project_files
+    self.expand_version = (self.expand_version or 0) + 1
   end
 end
 
@@ -156,6 +159,7 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
     return
   elseif self.hovered_item.type == "dir" then
     self.hovered_item.expanded = not self.hovered_item.expanded
+    self.expand_version = self.expand_version + 1
   else
     core.try(function()
       core.root_view:open_doc(core.open_doc(self.hovered_item.filename))
@@ -170,8 +174,10 @@ function TreeView:on_mouse_released(button, x, y)
 end
 
 
-function TreeView:on_mouse_wheel(y)
-  if keymap.modkeys["shift"] then
+function TreeView:on_mouse_wheel(y, x)
+  if x and x ~= 0 then
+    self.scroll.to.x = self.scroll.to.x + x * -config.mouse_wheel_scroll
+  elseif keymap.modkeys["shift"] then
     self.scroll.to.x = self.scroll.to.x + y * -config.mouse_wheel_scroll
   else
     TreeView.super.on_mouse_wheel(self, y)
@@ -208,10 +214,12 @@ function TreeView:update()
     self:move_towards(self.size, "x", dest)
   end
 
-  TreeView.super.update(self)
-  -- clamp horizontal scroll (base View only clamps y)
+  -- clamp horizontal scroll before super lerps it (base View only clamps y)
   local maxx = math.max(0, self:get_content_width() - self.size.x)
   self.scroll.to.x = common.clamp(self.scroll.to.x, 0, maxx)
+  self.scroll.x = common.clamp(self.scroll.x, 0, maxx)
+
+  TreeView.super.update(self)
 end
 
 
