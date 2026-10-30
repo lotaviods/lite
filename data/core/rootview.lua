@@ -62,6 +62,7 @@ end
 
 function Node:on_mouse_moved(x, y, ...)
   self.hovered_tab = self:get_tab_overlapping_point(x, y)
+  self.hovered_close = self.hovered_tab and self:tab_close_overlapping(self.hovered_tab, x, y) and self.hovered_tab
   if self.type == "leaf" then
     self.active_view:on_mouse_moved(x, y, ...)
   else
@@ -206,8 +207,16 @@ function Node:get_divider_overlapping_point(px, py)
 end
 
 
+function Node:should_show_tabs()
+  -- always show the bar (and its close x) for real docs, even a lone one;
+  -- keep the welcome EmptyView and side panels (treeview) bare
+  return #self.views > 1
+    or (#self.views == 1 and self.views[1]:is(DocView))
+end
+
+
 function Node:get_tab_overlapping_point(px, py)
-  if #self.views == 1 then return nil end
+  if not self:should_show_tabs() then return nil end
   local x, y, w, h = self:get_tab_rect(1)
   if px >= x and py >= y and px < x + w * #self.views and py < y + h then
     return math.floor((px - x) / w) + 1
@@ -232,6 +241,20 @@ function Node:get_tab_rect(idx)
   local tw = math.min(style.tab_width, math.ceil(self.size.x / #self.views))
   local h = style.font:get_height() + style.padding.y * 2
   return self.position.x + (idx-1) * tw, self.position.y, tw, h
+end
+
+
+function Node:get_tab_close_rect(idx)
+  local x, y, w, h = self:get_tab_rect(idx)
+  local s = style.icon_font:get_width("x")
+  return x + w - s - style.padding.x, y + (h - s) / 2, s, s, x, y, w, h
+end
+
+
+function Node:tab_close_overlapping(idx, px, py)
+  local x, y, w, h = self:get_tab_close_rect(idx)
+  local p = style.padding.x / 2  -- forgiving target around the small glyph
+  return px >= x - p and px < x + w + p and py >= y - p and py < y + h + p
 end
 
 
@@ -295,7 +318,7 @@ end
 function Node:update_layout()
   if self.type == "leaf" then
     local av = self.active_view
-    if #self.views > 1 then
+    if self:should_show_tabs() then
       local _, _, _, th = self:get_tab_rect(1)
       av.position.x, av.position.y = self.position.x, self.position.y + th
       av.size.x, av.size.y = self.size.x, self.size.y - th
@@ -349,9 +372,13 @@ function Node:draw_tabs()
       color = style.text
     end
     core.push_clip_rect(x, y, w, h)
-    x, w = x + style.padding.x, w - style.padding.x * 2
+    local cx, cy, cw = self:get_tab_close_rect(i)
+    -- reserve the close glyph's column so the name never draws under it
+    x, w = x + style.padding.x, w - style.padding.x * 3 - cw
     local align = style.font:get_width(text) > w and "left" or "center"
     common.draw_text(style.font, color, text, align, x, y, w, h)
+    local close_color = i == self.hovered_close and style.text or color
+    common.draw_text(style.icon_font, close_color, "x", nil, cx, cy, cw, cw)
     core.pop_clip_rect()
   end
 
@@ -361,7 +388,7 @@ end
 
 function Node:draw()
   if self.type == "leaf" then
-    if #self.views > 1 then
+    if self:should_show_tabs() then
       self:draw_tabs()
     end
     local pos, size = self.active_view.position, self.active_view.size
@@ -428,7 +455,7 @@ function RootView:on_mouse_pressed(button, x, y, clicks)
   local idx = node:get_tab_overlapping_point(x, y)
   if idx then
     node:set_active_view(node.views[idx])
-    if button == "middle" then
+    if button == "middle" or node:tab_close_overlapping(idx, x, y) then
       node:close_active_view(self.root_node)
     end
   else
