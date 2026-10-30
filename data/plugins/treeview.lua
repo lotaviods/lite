@@ -53,6 +53,34 @@ function TreeView:get_item_height()
 end
 
 
+function TreeView:get_scrollable_size()
+  local count = 0
+  for _ in self:each_item() do count = count + 1 end
+  return count * self:get_item_height() + style.padding.y
+end
+
+
+-- widest row in pixels; cached, recomputed only when the file list changes
+function TreeView:get_content_width()
+  if self.content_width and self.content_width_files == core.project_files then
+    return self.content_width
+  end
+  local icon_width = style.icon_font:get_width("D")
+  local spacing = style.font:get_width(" ") * 2
+  local max = 0
+  for item in self:each_item() do
+    local w = item.depth * style.padding.x + style.padding.x -- indent
+      + style.padding.x + icon_width -- icon(s): dir uses two but widths match closely enough
+      + spacing + style.font:get_width(item.name)
+    if item.type == "dir" then w = w + style.padding.x end
+    if w > max then max = w end
+  end
+  self.content_width = max + style.padding.x
+  self.content_width_files = core.project_files
+  return self.content_width
+end
+
+
 function TreeView:check_cache()
   -- invalidate cache's skip values if project_files has changed
   if core.project_files ~= self.last_project_files then
@@ -99,7 +127,12 @@ function TreeView:each_item()
 end
 
 
-function TreeView:on_mouse_moved(px, py)
+function TreeView:on_mouse_moved(px, py, dx, dy)
+  TreeView.super.on_mouse_moved(self, px, py, dx, dy)
+  if self.dragging_hscrollbar then
+    self.scroll.to.x = self.scroll.to.x + self:get_content_width() / self.size.x * dx
+  end
+  if self.dragging_scrollbar or self.dragging_hscrollbar then return end
   self.hovered_item = nil
   for item, x,y,w,h in self:each_item() do
     if px > x and py > y and px <= x + w and py <= y + h then
@@ -110,7 +143,15 @@ function TreeView:on_mouse_moved(px, py)
 end
 
 
-function TreeView:on_mouse_pressed(button, x, y)
+function TreeView:on_mouse_pressed(button, x, y, clicks)
+  local caught = TreeView.super.on_mouse_pressed(self, button, x, y, clicks)
+  if caught then
+    return
+  end
+  if self:hscrollbar_overlaps_point(x, y) then
+    self.dragging_hscrollbar = true
+    return
+  end
   if not self.hovered_item then
     return
   elseif self.hovered_item.type == "dir" then
@@ -120,6 +161,40 @@ function TreeView:on_mouse_pressed(button, x, y)
       core.root_view:open_doc(core.open_doc(self.hovered_item.filename))
     end)
   end
+end
+
+
+function TreeView:on_mouse_released(button, x, y)
+  TreeView.super.on_mouse_released(self, button, x, y)
+  self.dragging_hscrollbar = false
+end
+
+
+function TreeView:on_mouse_wheel(y)
+  if keymap.modkeys["shift"] then
+    self.scroll.to.x = self.scroll.to.x + y * -config.mouse_wheel_scroll
+  else
+    TreeView.super.on_mouse_wheel(self, y)
+  end
+end
+
+
+-- horizontal scrollbar at the bottom of the panel
+function TreeView:get_hscrollbar_rect()
+  local cw = self:get_content_width()
+  if cw <= self.size.x then return 0, 0, 0, 0 end
+  local w = math.max(20, self.size.x * self.size.x / cw)
+  return
+    self.position.x + self.scroll.x * (self.size.x - w) / (cw - self.size.x),
+    self.position.y + self.size.y - style.scrollbar_size,
+    w,
+    style.scrollbar_size
+end
+
+
+function TreeView:hscrollbar_overlaps_point(x, y)
+  local sx, sy, sw, sh = self:get_hscrollbar_rect()
+  return sw > 0 and x >= sx and x < sx + sw and y >= sy - sh * 3 and y < sy + sh
 end
 
 
@@ -134,6 +209,9 @@ function TreeView:update()
   end
 
   TreeView.super.update(self)
+  -- clamp horizontal scroll (base View only clamps y)
+  local maxx = math.max(0, self:get_content_width() - self.size.x)
+  self.scroll.to.x = common.clamp(self.scroll.to.x, 0, maxx)
 end
 
 
@@ -146,6 +224,7 @@ function TreeView:draw()
   local doc = core.active_view.doc
   local active_filename = doc and system.absolute_path(doc.filename or "")
 
+  core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
   for item, x,y,w,h in self:each_item() do
     local color = style.text
 
@@ -178,6 +257,16 @@ function TreeView:draw()
     -- text
     x = x + spacing
     x = common.draw_text(style.font, color, item.name, nil, x, y, 0, h)
+  end
+  core.pop_clip_rect()
+
+  self:draw_scrollbar()
+
+  -- horizontal scrollbar
+  local hx, hy, hw, hh = self:get_hscrollbar_rect()
+  if hw > 0 then
+    local color = self.dragging_hscrollbar and style.scrollbar2 or style.scrollbar
+    renderer.draw_rect(hx, hy, hw, hh, color)
   end
 end
 
