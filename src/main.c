@@ -16,12 +16,16 @@ SDL_Window *window;
 
 
 static double get_scale(void) {
+#if _WIN32
   float dpi;
   SDL_GetDisplayDPI(0, NULL, &dpi, NULL);
-#if _WIN32
   return dpi / 96.0;
 #else
-  return 1.0;
+  /* derive scale from the retina backing-store ratio */
+  int ww, wh, dw, dh;
+  SDL_GetWindowSize(window, &ww, &wh);
+  SDL_GL_GetDrawableSize(window, &dw, &dh);
+  return (ww > 0) ? (double) dw / ww : 1.0;
 #endif
 }
 

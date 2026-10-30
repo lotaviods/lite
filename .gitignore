@@ -1,0 +1,5 @@
+build/
+*.o
+lite
+lite.exe
+res.res
