@@ -138,7 +138,8 @@ function TreeView:on_mouse_moved(px, py, dx, dy)
   if self.dragging_scrollbar or self.dragging_hscrollbar then return end
   self.hovered_item = nil
   for item, x,y,w,h in self:each_item() do
-    if px > x and py > y and px <= x + w and py <= y + h then
+    -- hit the full visible panel row, not the content-offset box that shifts with hscroll
+    if px > self.position.x and py > y and px <= self.position.x + self.size.x and py <= y + h then
       self.hovered_item = item
       break
     end
