@@ -1,3 +1,3 @@
 [submodule "plugins"]
 	path = plugins
-	url = https://github.com/rxi/lite-plugins.git
+	url = git@github.com:lotaviods/lite-plugins.git
